@@ -426,3 +426,829 @@ Physical planning results in a series of RDDs and transformations.
 
 ## Execution
 Upon selecting a physical plan, Spark runs all of this code over RDDs, the lower-level programming interface of Spark. Spark performs further optimizations at runtime, generating native Java bytecode that can remove entire tasks or stages during execution. Finally the result is returned to the user.
+# Chapter 5: Basic Structured Operations
+A DataFrame consists of a series of records (like rows in a table), that are of type Row, and a number of columns (like columns in a spreadsheet) that represent a computation expression that can be performed on each individual record in the Dataset. Schemas define the name as well as the type of data in each column. Partitioning of the DataFrame defines the layout of the DataFrame or Dataset’s physical distribution across the cluster. The partitioning scheme defines how that is allocated.
+
+## Schemas
+```python
+df.schema()
+```
+![[Pasted image 20240128221157.png]]
+
+A schema is a `StructType` made up of a number of fields, `StructFields`, that have a name, type, a Boolean flag which specifies whether that column can contain missing or null values, and, finally, users can optionally specify associated metadata with that column.
+If the types in the data (at runtime) do not match the schema, Spark will throw an error.
+The example that follows shows how to create and enforce a specific schema on a DataFrame:
+```python
+from pyspark.sql.types import StructField, StructType, StringType, LongType
+
+myManualSchema = StructType([
+StructField("DEST_COUNTRY_NAME", StringType(), True),
+StructField("ORIGIN_COUNTRY_NAME", StringType(), True),
+StructField("count", LongType(), False, metadata={"hello":"world"})
+])
+  
+df = spark.read.format("json").schema(myManualSchema).load("dbfs:/FileStore/shared_uploads/ayaan2911@aol.com/2015_summary.json")
+```
+![[Pasted image 20240128221550.png]]
+
+## Columns and Expressions
+To Spark, columns are logical constructions that simply represent a value computed  
+on a per-record basis by means of an expression. This means that to have a real value  
+for a column, we need to have a row; and to have a row, we need to have a Data‐  
+Frame.
+
+## Columns
+There are a lot of different ways to construct and refer to columns but the two sim‐  
+plest ways are by using the col or column functions. To use either of these functions,  
+you pass in a column name:
+```python
+from pyspark.sql.functions import col, column  
+
+col("someColumnName")  
+column("someColumnName")
+```
+#### Explicit column references
+If you need to refer to a specific DataFrame’s column, you can use the col method on  
+the specific DataFrame.
+```python
+df.col("count")
+```
+
+## Expressions
+An expression is a set of transformations on one or more values in a record in a **DataFrame**. Think of it like a function that takes as input one or more column names, resolves them, and then potentially applies more expressions to create a single value  
+for each record in the dataset. Importantly, this “single value” can actually be a com‐  
+plex type like a `Map` or `Array`.
+#### Columns as expressions
+If you use `col()` and want to perform transformations on that column, you must perform those on that column reference. When using an expression, the expr function can actually parse transformations and column references from a string and can subsequently be passed into further transformations.
+
+`expr("someCol - 5")` is the same transformation as performing `col("someCol") - 5`, or even `expr("someCol") - 5`. That’s because Spark compiles these to a logical tree  
+specifying the order of operations.
+Example:
+```
+(((col("someCol") + 5) * 200) - 6) < col("otherCol")
+```
+![[Pasted image 20240128230528.png]]
+
+```python
+from pyspark.sql.functions import expr  
+
+expr("(((someCol + 5) * 200) - 6) < otherCol")
+```
+#### Accessing a DataFrame's columns
+```
+spark.read.format("json").load("/data/flight-data/json/2015-summary.json").columns
+```
+
+## Records and Rows
+In Spark, each row in a DataFrame is a single record. Spark represents this record as  
+an object of type **Row**. Spark manipulates **Row** objects using column expressions in  
+order to produce usable values. **Row** objects internally represent arrays of `bytes`.
+#### Creating Rows
+```python
+from pyspark.sql import Row  
+
+myRow = Row("Hello", None, 1, False)
+```
+
+For accessing rows:
+```python
+myRow[2]
+```
+![[Pasted image 20240128231129.png]]
+## DataFrame Transformations
+• We can add rows or columns  
+• We can remove rows or columns  
+• We can transform a row into a column (or vice versa)  
+• We can change the order of rows based on the values in columns
+
+![[Pasted image 20240128231233.png]]
+#### Creating DataFrames
+```python
+df = spark.read.format("json").load("/data/flight-data/json/2015-summary.json")  
+df.createOrReplaceTempView("dfTable")
+  
+df.show()
+```
+![[Pasted image 20240128235019.png]]
+
+or you can also make **DataFrames** by taking a set of rows and converting them  
+to a **DataFrame**:
+```python
+from pyspark.sql import Row
+from pyspark.sql.types import StructField, StructType, StringType, LongType
+  
+myManualSchema = StructType([
+StructField("some", StringType(), True),
+StructField("col", StringType(), True),
+StructField("names", LongType(), False)
+])
+
+myRow = Row("Hello", None, 1)
+myDf = spark.createDataFrame([myRow], myManualSchema)
+  
+myDf.show()
+```
+![[Pasted image 20240128235604.png]]
+#### select and selectExpr
+select and selectExpr allow you to do the DataFrame equivalent of SQL queries on  
+a table of data:
+```SQL
+SELECT * FROM dataFrameTable  
+SELECT columnName FROM dataFrameTable  
+SELECT columnName * 10, otherColumn, someOtherCol as c FROM dataFrameTable
+```
+
+In the simplest possible terms, you can use them to manipulate columns in your  
+DataFrames.
+For Example:
+```python
+df.select("DEST_COUNTRY_NAME").show(2)
+```
+![[Pasted image 20240129000018.png]]
+
+You can select multiple columns by using the same style of query, just add more column name strings to your select method call:
+```python
+df.select("DEST_COUNTRY_NAME", "ORIGIN_COUNTRY_NAME").show(2)
+```
+![[Pasted image 20240129000105.png]]
+
+```python
+from pyspark.sql.functions import expr, col, column  
+
+df.select(  
+expr("DEST_COUNTRY_NAME"),  
+col("DEST_COUNTRY_NAME"),  
+column("DEST_COUNTRY_NAME")).show(2)
+```
+![[Pasted image 20240129140555.png]]
+
+Now, for using aliases:
+```python
+df.select(expr("DEST_COUNTRY_NAME AS destination")).show(2)
+```
+![[Pasted image 20240129173020.png]]
+
+we can also do further manipulation by:
+```python
+df.select(expr("DEST_COUNTRY_NAME as destination").alias("DEST_COUNTRY_NAME")).show(2)
+```
+![[Pasted image 20240129173041.png]]
+This changes the column back to its original name.
+
+Because `select` followed by a series of expr is such a common pattern, Spark has a shorthand for doing this efficiently: `selectExpr`. This is probably the most convenient interface for everyday use:
+```python
+df.selectExpr("DEST_COUNTRY_NAME as newColumnName", "DEST_COUNTRY_NAME").show(2)
+```
+![[Pasted image 20240129173156.png]]
+
+We can treat `selectExpr` as a simple way to build up complex expressions that create new DataFrames. In fact, we can add any valid non-aggregating SQL statement, and as long as the columns resolve, it will be valid:
+```python
+df.selectExpr(
+"*", # all original columns
+"(DEST_COUNTRY_NAME = ORIGIN_COUNTRY_NAME) as withinCountry").show(2)
+```
+![[Pasted image 20240129173316.png]]
+
+We can also specify aggregations over the entire DataFrame by taking advantage of the functions that we have:
+```python
+df.selectExpr("avg(count)", "count(distinct(DEST_COUNTRY_NAME))").show(2)
+```
+![[Pasted image 20240129173443.png]]
+#### Converting to Spark Types (Literals)
+A translation from a given programming language’s literal value to one that Spark understands. Literals are expressions and you can use them in the same way:
+```python
+from pyspark.sql.functions import lit  
+
+df.select(expr("*"), lit(1).alias("One")).show(2)
+```
+![[Pasted image 20240129192127.png]]
+
+This will come up when you might need to check whether a value is greater than  
+some constant or other programmatically created variable.
+#### Adding Columns
+There’s also a more formal way of adding a new column to a DataFrame, and that’s by  
+using the `withColumn` method on our DataFrame:
+```python
+df.withColumn("numberOne", lit(1)).show(2)
+```
+![[Pasted image 20240129192441.png]]
+
+In the next example, we’ll set a Boolean flag for when the origin country is the same as the destination country:
+```python
+df.withColumn("withinCountry", expr("ORIGIN_COUNTRY_NAME == DEST_COUNTRY_NAME")).show(2)
+```
+![[Pasted image 20240129192526.png]]
+
+the `withColumn` function takes two arguments: the column name and the  
+expression that will create the value for that given row in the DataFrame.
+#### Renaming Columns
+Use the `withColumnRenamed` method. This will rename the column with the name of the string in the first argument to the string in the second argument:
+![[Pasted image 20240129193213.png]]
+#### Reserved Characters and Keywords
+One thing that you might come across is reserved characters like spaces or dashes in  
+column names. Handling these means escaping column names appropriately. In  
+Spark, we do this by using **backtick** character.
+```python
+dfWithLongColName = df.withColumn("This Long Column-Name", expr("ORIGIN_COUNTRY_NAME"))
+```
+
+We don’t need escape characters here because the first argument to `withColumn` is just 
+a string for the new column name. In this example, however, we need to use backticks  
+because we’re referencing a column in an expression:
+```python
+dfWithLongColName.selectExpr(  
+"`This Long Column-Name`",  
+"`This Long Column-Name` as `new col`").show(2)  
+
+dfWithLongColName.createOrReplaceTempView("dfTableLong")
+```
+#### Case Sensitivity
+By default Spark is case insensitive; however, you can make Spark case sensitive by  
+setting the configuration:
+```SQL
+SET spark.sql.caseSensitive true
+```
+#### Removing Columns
+```python
+df.drop("ORIGIN_COUNTRY_NAME").columns
+```
+
+Remove multiple columns by:
+```python
+dfWithLongColName.drop("ORIGIN_COUNTRY_NAME", "DEST_COUNTRY_NAME")
+```
+#### Changing a Column's Type (cast)
+Sometimes, we might need to convert from one type to another; for example, if we  
+have a set of `StringType` that should be integers. We can convert columns from one  
+type to another by casting the column from one type to another. For instance, let’s  
+convert our count column from an integer to a type `Long`:
+```python
+df.withColumn("count2", col("count").cast("long"))
+```
+#### Filtering Rows
+There are two methods to perform this operation: you can use where or filter and they both will perform the same operation and accept the same argument types when used with DataFrames.
+```python
+df.filter(col("count") < 2).show(2)
+df.where("count < 2").show(2)
+```
+![[Pasted image 20240129195536.png]]
+
+If you want to specify multiple `AND` filters, just chain them sequentially  
+and let Spark handle the rest:
+```python
+df.where(col("count") < 2).where(col("ORIGIN_COUNTRY_NAME") != "Croatia").show(2)
+```
+![[Pasted image 20240129200204.png]]
+#### Getting Unique Rows
+A very common use case is to extract the unique or distinct values in a DataFrame.  
+These values can be in one or more columns. The way we do this is by using the  
+`distinct` method on a DataFrame, which allows us to deduplicate any rows that are  
+in that DataFrame.
+```python
+df.select("ORIGIN_COUNTRY_NAME", "DEST_COUNTRY_NAME").distinct().count()
+```
+![[Pasted image 20240129200705.png]]
+#### Random Samples
+You can do this by using the `sample` method on a DataFrame, which makes it possible for you to specify a fraction of rows to extract from a DataFrame and whether you’d like to sample with or without replacement:
+```python
+seed = 5
+withReplacement = False
+fraction = 0.5
+
+df.sample(withReplacement, fraction, seed).count()
+```
+![[Pasted image 20240129200843.png]]
+#### Random Splits
+Random splits can be helpful when you need to break up your DataFrame into a random “splits” of the original DataFrame. This is often used with machine learning  
+algorithms to create training, validation, and test sets. 
+```python
+dataFrames = df.randomSplit([0.25, 0.75], seed)  
+dataFrames[0].count() > dataFrames[1].count() # False
+```
+#### Concatenating and Appending Rows (Union)
+To append to a DataFrame, you must `union` the original DataFrame along with the new DataFrame. This just concatenates the two DataFrames.
+```python
+from pyspark.sql import Row
+
+schema = df.schema
+newRows = [
+Row("New Country", "Other Country", 5L),
+Row("New Country 2", "Other Country 3", 1L)
+]
+parallelizedRows = spark.sparkContext.parallelize(newRows)
+
+newDF = spark.createDataFrame(parallelizedRows, schema)
+```
+![[Pasted image 20240129201700.png]]
+#### Sorting Rows
+There are two equivalent operations to do this `sort` and `orderBy` that work the exact same way. They accept both column expressions and strings as well as multiple columns. The default is to sort in ascending order:
+```python
+df.sort("count").show(5)
+
+df.orderBy("count", "DEST_COUNTRY_NAME").show(5)
+
+df.orderBy(col("count"), col("DEST_COUNTRY_NAME")).show(5)
+```
+![[Pasted image 20240129203408.png]]
+![[Pasted image 20240129203433.png]]
+
+To more explicitly specify sort direction, you need to use the asc and desc functions  
+if operating on a column:
+```python
+from pyspark.sql.functions import desc, asc  
+
+df.orderBy(expr("count desc")).show(2)  
+df.orderBy(col("count").desc(), col("DEST_COUNTRY_NAME").asc()).show(2)
+```
+![[Pasted image 20240129203525.png]]
+An advanced tip is to use `asc_nulls_first`, `desc_nulls_first`, `asc_nulls_last`, or  
+`desc_nulls_last` to specify where you would like your null values to appear in an  
+ordered DataFrame.
+
+For optimization purposes, it’s sometimes advisable to sort within each partition  
+before another set of transformations. You can use the `sortWithinPartitions` 
+method to do this:
+```python
+spark.read.format("json").load("/data/flight-data/json/*-summary.json").sortWithinPartitions("count")
+```
+#### Limit
+Oftentimes, you might want to restrict what you extract from a DataFrame; for example, you might want just the top ten of some DataFrame. You can do this by using the `limit` method:
+```python
+df.limit(5).show()
+```
+![[Pasted image 20240129203728.png]]
+```python
+df.orderBy(expr("count desc")).limit(6).show()
+```
+![[Pasted image 20240129203749.png]]
+#### Repartition and Coalesce
+Repartition will incur a full shuffle of the data, regardless of whether one is necessary. This means that you should typically only repartition when the future number of partitions is greater than your current number of partitions or when you are looking to  
+partition by a set of columns:
+```python
+df.rdd.getNumPartitions() # 1
+```
+
+If you know that you’re going to be filtering by a certain column often, it can be  
+worth repartitioning based on that column:
+```python
+df.repartition(col("DEST_COUNTRY_NAME"))
+```
+
+You can optionally specify the number of partitions you would like, too:
+```python
+df.repartition(5, col("DEST_COUNTRY_NAME"))
+```
+
+Coalesce, on the other hand, will not incur a full shuffle and will try to combine partitions. This operation will shuffle your data into five partitions based on the destination country name, and then coalesce them (without a full shuffle):
+```python
+df.repartition(5, col("DEST_COUNTRY_NAME")).coalesce(2)
+```
+
+# Chapter 6: Working with Different Types of Data
+There are a variety of different kinds of data, including: 
+• Booleans  
+• Numbers  
+• Strings  
+• Dates and timestamps  
+• Handling null  
+• Complex types  
+• User-defined functions
+## Converting to Spark Types
+The `lit` function converts a type in another language to its correspnding Spark representation:
+```python
+from pyspark.sql.functions import lit  
+
+df.select(lit(5), lit("five"), lit(5.0))
+```
+![[Pasted image 20240130135503.png]]
+## Working with Booleans
+```python
+from pyspark.sql.functions import col
+
+df.where(col("InvoiceNo") != 536365).select("InvoiceNo", "Description").show(5, False)
+```
+![[Pasted image 20240130135626.png]]
+
+Another option and probably the cleanest is to specify the predicate as an expression in a string:
+```python
+df.where("InvoiceNo = 536365").show(5, False)  
+```
+![[Pasted image 20240130135858.png]]
+```python
+df.where("InvoiceNo <> 536365").show(5, False)
+```
+![[Pasted image 20240130135931.png]]
+
+The reason for this is that even if Boolean statements are expressed serially (one after the other), Spark will flatten all of these filters into one statement and perform the filter at the same time, creating the `and` statement for us.
+```python
+from pyspark.sql.functions import instr  
+
+priceFilter = col("UnitPrice") > 600
+descripFilter = instr(df.Description, "POSTAGE") >= 1  
+
+df.where(df.StockCode.isin("DOT")).where(priceFilter | descripFilter).show()
+```
+![[Pasted image 20240130140341.png]]
+
+Boolean expressions are not just reserved to filters. To filter a DataFrame, you can also  
+just specify a Boolean column:
+```python
+from pyspark.sql.functions import instr   
+
+DOTCodeFilter = col("StockCode") == "DOT"  
+priceFilter = col("UnitPrice") > 600  
+descripFilter = instr(col("Description"), "POSTAGE") >= 1  
+  
+df.withColumn("isExpensive", DOTCodeFilter & (priceFilter | descripFilter)).where("isExpensive").select("unitPrice", "isExpensive").show(5)
+```
+![[Pasted image 20240130141937.png]]
+
+it’s often easier to just express filters as SQL statements than using the programmatic DataFrame interface and Spark SQL allows us to do this without paying any performance penalty:
+```python
+from pyspark.sql.functions import expr  
+
+df.withColumn("isExpensive", expr("NOT UnitPrice <= 250")).where("isExpensive").select("Description", "UnitPrice").show(5)
+```
+![[Pasted image 20240130142741.png]]
+## Working with Numbers
+To fabricate a contrived example, let’s imagine that we found out that we misrecorded the quantity in our retail dataset and the true quantity is equal to
+
+$(\text{the current quantity}  *  \text{the  unit  price})^2 + 5$
+
+This will introduce our first numerical function as well as the pow function that raises a column to the expressed power:
+```python
+from pyspark.sql.functions import expr, pow  
+
+fabricatedQuantity = pow(col("Quantity") * col("UnitPrice"), 2) + 5  
+df.select(expr("CustomerId"), fabricatedQuantity.alias("realQuantity")).show(2)
+```
+![[Pasted image 20240130175715.png]]
+
+Naturally we can add and subtract as necessary, as well. In fact, we can do  
+all of this as a SQL expression, as well:
+```python
+df.selectExpr(  
+"CustomerId",  
+"(POWER((Quantity * UnitPrice), 2.0) + 5) as realQuantity").show(2)
+```
+![[Pasted image 20240130175707.png]]
+
+Next up, **rounding**:
+```python
+from pyspark.sql.functions import lit, round, bround
+
+df.select(round(lit("2.5")), bround(lit("2.5"))).show(2)
+```
+![[Pasted image 20240130175826.png]]
+
+Another numerical task is to compute the correlation of two columns. For example,  
+we can see the Pearson correlation coefficient for two columns to see if cheaper things  
+are typically bought in greater quantities:
+```python
+from pyspark.sql.functions import corr  
+
+df.stat.corr("Quantity", "UnitPrice")  
+df.select(corr("Quantity", "UnitPrice")).show()
+```
+![[Pasted image 20240130181701.png]]
+
+Another common task is to compute summary statistics for a column or set of col‐  
+umns. We can use the `describe` method to achieve exactly this:
+```python
+df.describe().show()
+```
+![[Pasted image 20240130181809.png]]
+
+If you need these exact numbers, you can also perform this as an aggregation yourself  
+by importing the functions and applying them to the columns that you need:
+```python
+from pyspark.sql.functions import count, mean, stddev_pop, min, max
+```
+
+To calculate either exact or approximate quantiles of your data using the `approxQuantile` method:
+```python
+colName = "UnitPrice"  
+quantileProbs = [0.5]  
+relError = 0.05  
+df.stat.approxQuantile("UnitPrice", quantileProbs, relError)
+```
+![[Pasted image 20240130182000.png]]
+
+You also can use this to see a cross-tabulation or frequent item pairs:
+```python
+df.stat.crosstab("StockCode", "Quantity").show()
+```
+![[Pasted image 20240130182112.png]]
+
+we can also add a unique ID to each row by using the function `monotonically_increasing_id`. This function generates a unique value for each row, starting with 0:
+```python
+from pyspark.sql.functions import monotonically_increasing_id  
+
+df.select(monotonically_increasing_id()).show(2)
+```
+![[Pasted image 20240130182253.png]]
+
+There are some random data generation tools (e.g., `rand()`, `randn()`) with which you can randomly generate data; however, there are potential determinism issues when doing so.
+## Working with Strings
+The `initcap` function will capitalize every word in a given string when that word is separated from another by a space:
+```python 
+from pyspark.sql.functions import initcap  
+
+df.select(initcap(col("Description"))).show()
+```
+![[Pasted image 20240130182931.png]]
+
+As just mentioned, you can cast strings in uppercase and lowercase, as well:
+```python
+from pyspark.sql.functions import lower, upper  
+
+df.select(col("Description"),  
+lower(col("Description")),  
+upper(lower(col("Description")))).show(2)
+```
+![[Pasted image 20240130183027.png]]
+
+Another trivial task is adding or removing spaces around a string. You can do this by using `lpad`, `ltrim`, `rpad` and `rtrim`, `trim`:
+```python
+from pyspark.sql.functions import lit, ltrim, rtrim, rpad, lpad, trim  
+
+df.select(  
+ltrim(lit(" HELLO ")).alias("ltrim"),  
+rtrim(lit(" HELLO ")).alias("rtrim"),  
+trim(lit(" HELLO ")).alias("trim"),  
+lpad(lit("HELLO"), 3, " ").alias("lp"),  
+rpad(lit("HELLO"), 10, " ").alias("rp")).show(2)
+```
+![[Pasted image 20240130183157.png]]
+
+#### Regular Expressions
+Probably one of the most frequently performed tasks is searching for the existence of one string in another or replacing all mentions of a string with another value. This is often done with a tool called `regular expressions`.
+```python
+from pyspark.sql.functions import regexp_replace  
+
+regex_string = "BLACK|WHITE|RED|GREEN|BLUE"  
+df.select(  
+regexp_replace(col("Description"), regex_string, "COLOR").alias("color_clean"), col("Description")).show(2)
+```
+![[Pasted image 20240131140358.png]]
+
+Another task might be to replace given characters with other characters. Building this  
+as a regular expression could be tedious, so Spark also provides the translate function  
+to replace these values. This is done at the character level and will replace all instances  
+of a character with the indexed character in the replacement string:
+```python
+from pyspark.sql.functions import translate  
+
+df.select(translate(col("Description"), "LEET", "1337"),col("Description"))\  
+.show(2)
+```
+![[Pasted image 20240131141405.png]]
+
+We can also perform something similar, like pulling out the first mentioned color:
+```python
+from pyspark.sql.functions import regexp_extract  
+
+extract_str = "(BLACK|WHITE|RED|GREEN|BLUE)"  
+df.select(  
+regexp_extract(col("Description"), extract_str, 1).alias("color_clean"),  
+col("Description")).show(2)
+```
+![[Pasted image 20240131141450.png]]
+
+Sometimes, rather than extracting values, we simply want to check for their existence.  
+We can do this with the `contains` method on each column:
+```python
+from pyspark.sql.functions import instr  
+
+containsBlack = instr(col("Description"), "BLACK") >= 1  
+containsWhite = instr(col("Description"), "WHITE") >= 1  
+
+df.withColumn("hasSimpleColor", containsBlack | containsWhite).where("hasSimpleColor").select("Description").show(3, False)
+```
+![[Pasted image 20240131141624.png]]
+
+Spark’s ability to accept a dynamic number of arguments. When we convert a list of values into a set of arguments and pass them into a function, we use a language feature called `var args`. Using this feature, we can effectively unravel an array of arbitrary length and pass it as arguments to a function. This, coupled with `select` makes it possible for us to create arbitrary numbers of columns dynamically. In Python, we’re going to use a different function, `locate`, that returns the integer location (1 based location):
+```python
+from pyspark.sql.functions import expr, locate  
+simpleColors = ["black", "white", "red", "green", "blue"]  
+
+def color_locator(column, color_string):  
+	return locate(color_string.upper(), column).cast("boolean").alias("is_" + c)  
+
+selectedColumns = [color_locator(df.Description, c) for c in simpleColors]
+selectedColumns.append(expr("*")) # has to a be Column type  
+
+df.select(*selectedColumns).where(expr("is_white OR is_red")).select("Description").show(3, False)
+```
+## Working with Dates and Timestamps
+Create a basic date table:
+```python
+from pyspark.sql.functions import current_date, current_timestamp
+
+dateDF = spark.range(10).withColumn("today", current_date()).withColumn("now", current_timestamp())
+
+dateDF.createOrReplaceTempView("dateTable")
+dateDF.printSchema()
+```
+![[Pasted image 20240131142628.png]]
+
+Add and subtract five days from today. These functions take a column and then the number of days to either add or subtract as the arguments:
+```python
+from pyspark.sql.functions import date_add, date_sub  
+
+dateDF.select(date_sub(col("today"), 5), date_add(col("today"), 5)).show(1)
+```
+![[Pasted image 20240131142825.png]]
+
+Another common task is to take a look at the difference between two dates. We can do this with the `datediff` function that will return the number of days in between two dates:
+```python
+from pyspark.sql.functions import datediff, months_between, to_date  
+
+dateDF.withColumn("week_ago", date_sub(col("today"), 7)).select(datediff(col("week_ago"), col("today"))).show(1)  
+dateDF.select(  
+to_date(lit("2016-01-01")).alias("start"),  
+to_date(lit("2017-05-22")).alias("end")).select(months_between(col("start"), col("end"))).show(1)
+```
+![[Pasted image 20240131143014.png]]
+
+The `to_date` function allows you to convert a string to a date, optionally with a specified format:
+```python
+from pyspark.sql.functions import to_date, lit  
+
+spark.range(5).withColumn("date", lit("2017-01-01")).select(to_date(col("date"))).show(1)
+```
+
+Spark will not throw an error if it cannot parse the date; rather, it will just return  
+*null*. This can be a bit tricky in larger pipelines because you might be expecting your  
+data in one format and getting it in another.
+```python
+dateDF.select(to_date(lit("2016-20-12")),to_date(lit("2017-12-11"))).show(1)
+```
+![[Pasted image 20240131143432.png]]
+
+To fix this pipeline, step by step, and come up with a robust way to avoid these issues entirely. The first step is to remember that we need to specify our date format according to the **Java SimpleDateFormat standard**.  
+We will use two functions to fix this: `to_date` and `to_timestamp`. The former option‐  
+ally expects a format, whereas the latter requires one:
+```python
+from pyspark.sql.functions import to_date
+
+dateFormat = "yyyy-dd-MM"
+cleanDateDF = spark.range(1).select(
+to_date(lit("2017-12-11"), dateFormat).alias("date"),
+to_date(lit("2017-20-12"), dateFormat).alias("date2"))
+cleanDateDF.createOrReplaceTempView("dateTable2")
+```
+![[Pasted image 20240131143659.png]]
+Now let’s use an example of `to_timestamp`, which always requires a format to be  
+specified:
+```python
+from pyspark.sql.functions import to_timestamp  
+
+cleanDateDF.select(to_timestamp(col("date"), dateFormat)).show()
+```
+![[Pasted image 20240131143733.png]]
+
+After we have our date or timestamp in the correct format and type, comparing  
+between them is actually quite easy. We just need to be sure to either use a date/time‐  
+stamp type or specify our string according to the right format of *yyyy-MM-dd* if we’re  
+comparing a date:
+```python
+cleanDateDF.filter(col("date2") > lit("2017-12-12")).show()
+```
+## Working with Nulls in Data
+There are two things you can do with null values: you can explicitly **drop** nulls or you can **fill them** with a value (globally or on a per-column basis). 
+#### Coalesce
+Spark includes a function to allow you to select the first non-null value from a set of  
+columns by using the `coalesce` function. In this case, there are no null values, so it simply returns the first column:
+```python
+from pyspark.sql.functions import coalesce  
+
+df.select(coalesce(col("Description"), col("CustomerId"))).show()
+```
+![[Pasted image 20240131144348.png]]
+#### ifnull, nullif, nvl and nvl2
+`ifnull` allows you to select the second value if the first is null, and defaults to the first. Alternatively, you could use `nullif`, which returns null if the two values are equal or else returns the second if they are not. `nvl` returns the second value if the first is null, but defaults to the first. Finally, `nvl2` returns the second value if the first is not null; otherwise, it will return the last specified value (`else_value` in the following example):
+```SQL
+%sql
+
+SELECT
+ifnull(null, 'return_value'),
+nullif('value', 'value'),
+nvl(null, 'return_value'),
+nvl2('not_null', 'return_value', "else_value")
+FROM dfTable LIMIT 1
+```
+![[Pasted image 20240131144629.png]]
+#### drop
+The simplest function is `drop`, which removes rows that contain *nulls*. The default is  
+to drop any row in which any value is *null*:
+```python
+df.na.drop()  
+df.na.drop("any")
+```
+
+Specifying "any" as an argument drops a row if any of the values are null. Using “all”  
+drops the row only if all values are *null* or *NaN* for that row:
+```python
+df.na.drop("all")
+```
+
+We can also apply this to certain sets of columns by passing in an array of columns:
+```python
+df.na.drop("all", subset=["StockCode", "InvoiceNo"])
+```
+
+#### fill
+Using the `fill` function, you can fill one or more columns with a set of values. This can be done by specifying a map—that is a particular value and a set of columns.
+To fill all null values in columns of type String, you might specify the following:
+```python
+df.na.fill("All Null values become this string")
+```
+
+We could do the same for columns of type Integer by using `df.na.fill(5:Integer)`,  
+or for Doubles `df.na.fill(5:Double)`. To specify columns, we just pass in an array of column names like we did in the previous example:
+```python
+df.na.fill("all", subset=["StockCode", "InvoiceNo"])
+```
+
+We can also do this with with a Scala Map, where the key is the column name and the value is the value we would like to use to fill null values:
+```python
+fill_cols_vals = {"StockCode": 5, "Description" : "No Value"}  
+
+df.na.fill(fill_cols_vals)
+```
+#### replace
+to replace all values in a certain column according to their current value:
+```python
+df.na.replace([""], ["UNKNOWN"], "Description")
+```
+#### ordering
+You can use `asc_nulls_first`, `desc_nulls_first`, `asc_nulls_last`, or `desc_nulls_last` to specify where you would like your null values to appear in an ordered DataFrame.
+## Working with Complex Types
+### Structs
+You can think of structs as DataFrames within DataFrames. We can create a struct by wrapping a set of columns in parenthesis in a query:
+```python
+df.selectExpr("(Description, InvoiceNo) as complex", "*")  
+df.selectExpr("struct(Description, InvoiceNo) as complex", "*")
+```
+```python
+from pyspark.sql.functions import struct
+
+complexDF = df.select(struct("Description", "InvoiceNo").alias("complex"))
+complexDF.createOrReplaceTempView("complexDF")
+```
+![[Pasted image 20240201000427.png]]
+
+We now have a DataFrame with a column complex. We can query it just as we might  
+another DataFrame, the only difference is that we use a dot syntax to do so, or the  
+column method `getField`:
+```python
+complexDF.select("complex.Description")  
+complexDF.select(col("complex").getField("Description"))
+```
+
+We can also query all values in the struct by using `*`. This brings up all the columns to  
+the top-level DataFrame:
+```python
+complexDF.select("complex.*complexDF.select("complex.*")
+```
+### Arrays
+Our objective is to take every single word in our Description column and convert that into a row in our DataFrame.  
+#### split
+The first task is to turn our Description column into a complex type, an array. We do this by using the `split` function.
+```python
+from pyspark.sql.functions import split  
+
+df.select(split(col("Description"), " ")).show(2)
+```
+![[Pasted image 20240201001444.png]]
+
+We can also query the values of the array using Python-like syntax:
+```python
+df.select(split(col("Description"), " ").alias("array_col")).selectExpr("array_col[0]").show(2)
+```
+#### array_contains
+We can also see whether this array contains a value:
+```python
+from pyspark.sql.functions import array_contains  
+
+df.select(array_contains(split(col("Description"), " "), "WHITE")).show(2)
+```
+![[Pasted image 20240201014329.png]]
+#### explode
+The explode function takes a column that consists of arrays and creates one row (with the rest of the values duplicated) per value in the array.
+![[Pasted image 20240201014633.png]]
+
+```python
+from pyspark.sql.functions import split, explode  
+
+df.withColumn("splitted", split(col("Description"), " "))
+withColumn("exploded", explode(col("splitted"))).select("Description", "InvoiceNo", "exploded").show(2)
+```
+![[Pasted image 20240201015206.png]]
+#### Maps
+Maps are created by using the map function and key-value pairs of columns. You then can select them just like you might select from an array:
+```python
+from pyspark.sql.functions import create_map  
+df.select(create_map(col("Description"), col("InvoiceNo")).alias("complex_map")).show(2)
+```
