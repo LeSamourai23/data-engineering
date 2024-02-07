@@ -3,14 +3,12 @@
 Apache Spark is a unified computing engine and a set of libraries for parallel data processing on computer clusters.
 A group of machines alone is not powerful, you need a framework  
 to coordinate work across them. Spark does just that, managing and coordinating the  execution of tasks on data across a cluster of computers.
-
 ![[Pasted image 20240124214034.png]]
 
 # Chapter 2: A Gentle Introduction to Spark
 ## What is a cluster ?
 A cluster, or group, of computers, pools the resources of many machines  
 together, giving us the ability to use all the cumulative resources as if they were a single computer.
-
 ## Spark Applications
 Spark Applications consist of a driver process and a set of executor processes. The **driver** process runs your main() function, sits on a node in the cluster, and is responsible for three things: *maintaining information about the Spark Application*; *responding to a user’s program or input*; and *analyzing, distributing, and scheduling work across the executors (discussed momentarily)*. The driver process is absolutely essential—it’s the heart of a Spark Application and maintains all relevant information during the lifetime of the application.  
 The **executors** are responsible for actually carrying out the work that the driver  
@@ -21,10 +19,8 @@ assigns them. This means that each executor is responsible for only two things: 
 **Summary:**
 • Spark employs a cluster manager that keeps track of the resources available.  
 • The driver process is responsible for executing the driver program’s commands across the executors to complete a given task
-
 ## Spark APIs
 Spark has two fundamental sets of APIs: the low-level “unstructured” APIs, and the higher-level structured APIs. We discuss both in this book, but these introductory chapters will focus primarily on the higher-level structured APIs.
-
 ## SparkSession
 The SparkSession instance is the way Spark executes user-defined manipulations across the cluster. There is a one-tone correspondence between a SparkSession and a Spark Application.
 
@@ -37,17 +33,14 @@ A simple task of creating a range of numbers:
 ```python
 myRange = spark.range(1000).toDF("number")
 ```
-
-## DataFrames
+## DataFames
 A DataFrame is the most common Structured API and simply represents a table of data with rows and columns. The list that defines the columns and the types within those columns is called the schema.
 
 ![[Pasted image 20240124215457.png]]
-
 ## Partitions
 To allow every executor to perform work in parallel, Spark breaks up the data into chunks called **partitions**. A partition is a collection of rows that sit on one physical machine in your cluster. A DataFrame’s partitions represent how the data is physically distributed across the cluster of machines during execution.
 
 If you have one partition, Spark will have a parallelism of only one, even if you have thousands of executors. If you have many partitions but only one executor, Spark will still have a parallelism of only one because there is only one computation resource.
-
 ## Transformations
 A simple transformation to find all even numbers in a DataFrame:
 ```python
@@ -64,10 +57,8 @@ A **wide dependency** (or *wide transformation*) style transformation will have 
 You will often hear this referred to as a **shuffle** whereby Spark will exchange partitions across the cluster. With narrow transformations, Spark will automatically perform an operation called **pipelining**, meaning that if we specify multiple filters on DataFrames, they’ll all be performed in-memory. The same cannot be said for shuffles. When we perform a shuffle, Spark writes the results to disk.
 
 ![[Pasted image 20240124220705.png]]
-
 ## Lazy Evaluation
 Lazy evaluation in Spark means it delays executing operations on data until the last moment. Instead of immediately changing data, Spark plans transformations for efficiency. It compiles this plan just before executing, optimizing the entire data flow. For instance, Spark uses **predicate pushdown** to automatically optimize tasks like fetching a single record efficiently in large jobs.
-
 ## Actions
 Transformations allow us to build up our logical transformation plan. To trigger the computation, we run an action. An action instructs Spark to compute a result from a series of transformations.
 Example of a simple action is *count*, which gives us the total num‐  
@@ -75,9 +66,7 @@ ber of records in the DataFrame:
 ```python
 divisBy2.count()
 ```
-
 ## An End-to-End Example
-
 Defining our DataFrame:
 ```python
 flightData2010 = spark.read.option("inferSchema", "true").option("header", "true").csv("/FileStore/shared_uploads/ayaan2911@aol.com/summary2010.csv")
@@ -104,7 +93,6 @@ spark.conf.set("spark.sql.shuffle.partitions", "5")
 flightData2010.sort("count").take(2)
 ```
 ![[Pasted image 20240124232037.png]]
-
 #### SparkSQL
 You can make any DataFrame into a table or view with one simple method call:
 ```python
@@ -161,20 +149,16 @@ flightData2010.groupBy("DEST_COUNTRY_NAME").sum("count").withColumnRenamed("sum(
 flightData2010.groupBy('DEST_COUNTRY_NAME').sum("count").withColumnRenamed("sum(count)", "destination_total").sort(desc("destination_total")).limit(5).explain()
 ```
 ![[Pasted image 20240124233150.png]]
-
 # Chapter 3: A Tour of Spark's Toolset
 Spark is composed of these primitives—the **lower-level APIs** and the  
 **Structured APIs**—and then a series of standard libraries for additional functionality.
 ![[Pasted image 20240124233625.png]]
-
 ## Running Production Applications
 Spark also makes it easy to turn your interactive exploration into production applications with `spark-submit`,  a built-in command-line tool. `spark-submit` does one thing: it lets you send your application code to a cluster and launch it to execute there. Upon submission, the application will run until it exits (completes the task) or encounters an error. You can do this with all of Spark’s support cluster managers including Standalone, Mesos, and  YARN.
-
 ## Datasets: Type-Safe Structured APIs
 The APIs available on Datasets are *type-safe*, meaning that you cannot  
 accidentally view the objects in a Dataset as being of another class than the class you put in initially.
 Only works in Scala.
-
 ## Structured Streaming
 With Structured Streaming, you can take the same operations that you perform in batch mode using Spark’s structured APIs and run them in a streaming fashion. This can reduce latency and allow for incremental processing.
 #### Example
@@ -236,7 +220,6 @@ Another option you can use is to write the results out to the console:
 ```python
 purchaseByCustomerPerHour.writeStream.format("console").queryName("customer_purchases_2").outputMode("complete").start()
 ```
-
 ## Machine Learning and Advanced Analytics
 Another popular aspect of Spark is its ability to perform large-scale machine learning with a built-in library of machine learning algorithms called MLlib. MLlib allows for preprocessing, munging, training of models, and making predictions at scale on data.
 We will perform some basic clustering on our data using a standard algorithm called *k-means*.
@@ -327,7 +310,6 @@ kmModel.computeCost(transformedTraining)
 transformedTest = fittedPipeline.transform(testDataFrame)
 kmModel.computeCost(transformedTest)
 ```
-
 ## Lower-Level APIs
 - Virtually everything in Spark is built on RDDs, but most users should stick to DataFrames for their simplicity and convenience.
 - Use RDDs only when you need to do something that DataFrames cannot handle, such as manipulating raw data or customizing execution details.
@@ -337,25 +319,20 @@ One thing that you might use RDDs for is to parallelize raw data that you have s
 ```python
 from pyspark.sql import Row spark.sparkContext.parallelize([Row(1), Row(2), Row(3)]).toDF()
 ```
-
 ## Spark's Ecosystem and Packages
 You can find the largest index of Spark Packages at [spark-packages.org].
-
 # Chapter 4: Structured API Overview
 The Structured APIs are a tool for manipulating all sorts of data, from unstructured log files to semistructured CSV files and highly structured Parquet files. These APIs refer to three core types of distributed collection APIs: 
 • Datasets 
 • DataFrames 
 • SQL tables and views
-
 ## DataFrames and Datasets
 * Spark has two notions of structured collections: **DataFrames** and **Datasets**. 
 * **DataFrame** and **Datasets** are (distributed) table-like collections with well-defined rows and columns. Each column must have the same number of rows as all the other columns (although you can use null to specify the absence of a value) and each column has type information that must be consistent for every row in the collection.
 * To Spark, **DataFrames** and **Datasets** represent immutable, lazily evaluated plans that specify what operations to apply to data residing at a location to generate some output. When we perform an action on a **DataFrame**, we instruct Spark to perform the actual transformations and return the result. These represent plans of how to manipulate rows and columns to compute the user’s desired result.
 * Tables and views are basically the same thing as DataFrames. We just execute SQL against them instead of DataFrame code.
-
 ## Overview of Structured Spark Types
 Spark is effectively a programming language of its own. Internally, Spark uses an engine called **Catalyst** that maintains its own type information through the planning and processing of work.
-
 ## DataFrames Versus Datasets
 Types within Structured APIs:
 - **DataFrames:**
@@ -363,27 +340,23 @@ Types within Structured APIs:
     - **Availability:** Available in all Spark languages (Scala, Java, Python, R).
     - **Internal representation:** In Scala, Spark represents DataFrames as Datasets of type "Row", a specialized format optimized for efficient in-memory computations. This avoids costly garbage collection and object creation associated with JVM types.
     - **In Python and R:** Everything is implicitly translated to this optimized DataFrame format, eliminating the need for a separate Dataset concept.
-    
+
 - **Datasets:**
     - **Type system:** "Typed" because it relies on explicit type declarations (case classes in Scala, Java beans in Java) that are checked for compliance at compile time. This provides static type safety and catches errors early.
     - **Availability:** Limited to JVM-based languages (Scala and Java) due to its reliance on compile-time checks.
 
 **Key Takeaways:**
-
 - In most cases, **DataFrames** are preferred for their flexibility and availability across all languages.
 - **Datasets** offer stronger type safety through compile-time checks, but are limited to JVM languages.
 - Both **DataFrames** and **Datasets** leverage Spark's optimized internal format for efficient computations.
 - This internal format avoids JVM object creation and garbage collection overhead, leading to better performance.
-
 ## Columns
 Columns represent a *simple type* like an integer or string, a complex type like an array or map, or a *null value*. Spark tracks all of this type information for you and offers a variety of ways, with which you can transform columns.
-
 ## Rows
 A row is nothing more than a record of data. Each record in a DataFrame must be of type Row, as we can see when we collect the following DataFrames.
 ```python
 spark.range(2).collect()
 ```
-
 ## Spark Types
 Before getting to those tables, let’s talk about how we instantiate, or declare, a column to be of a certain type. To work with the correct Scala types, use the following:
 ```python
@@ -403,7 +376,6 @@ This section will demonstrate how this code is actually executed across a cluste
 4. Spark then executes this *Physical Plan* (RDD manipulations) on the cluster.
 
 ![[Pasted image 20240125153900.png]]
-
 ## Logical Planning
 The first phase of execution is meant to take user code and convert it into a logical plan.
 ![[Pasted image 20240125153945.png]]
@@ -417,7 +389,6 @@ The first phase of execution is meant to take user code and convert it into a lo
 * **Optimization:** Apply Catalyst Optimizer rules to improve the plan.
     - Push down predicates or selections.
     - Extensions possible for domain-specific optimizations.
-
 ## Physical Planning
 After successfully creating an optimized logical plan, Spark then begins the physical planning process. The physical plan, often called a Spark plan, specifies how the logical plan will execute on the cluster by generating different physical execution strategies and comparing them through a cost model.
 
@@ -449,13 +420,11 @@ StructField("count", LongType(), False, metadata={"hello":"world"})
 df = spark.read.format("json").schema(myManualSchema).load("dbfs:/FileStore/shared_uploads/ayaan2911@aol.com/2015_summary.json")
 ```
 ![[Pasted image 20240128221550.png]]
-
 ## Columns and Expressions
 To Spark, columns are logical constructions that simply represent a value computed  
 on a per-record basis by means of an expression. This means that to have a real value  
 for a column, we need to have a row; and to have a row, we need to have a Data‐  
 Frame.
-
 ## Columns
 There are a lot of different ways to construct and refer to columns but the two sim‐  
 plest ways are by using the col or column functions. To use either of these functions,  
@@ -472,7 +441,6 @@ the specific DataFrame.
 ```python
 df.col("count")
 ```
-
 ## Expressions
 An expression is a set of transformations on one or more values in a record in a **DataFrame**. Think of it like a function that takes as input one or more column names, resolves them, and then potentially applies more expressions to create a single value  
 for each record in the dataset. Importantly, this “single value” can actually be a com‐  
@@ -497,7 +465,6 @@ expr("(((someCol + 5) * 200) - 6) < otherCol")
 ```
 spark.read.format("json").load("/data/flight-data/json/2015-summary.json").columns
 ```
-
 ## Records and Rows
 In Spark, each row in a DataFrame is a single record. Spark represents this record as  
 an object of type **Row**. Spark manipulates **Row** objects using column expressions in  
