@@ -428,7 +428,6 @@ Physical planning results in a series of RDDs and transformations.
 Upon selecting a physical plan, Spark runs all of this code over RDDs, the lower-level programming interface of Spark. Spark performs further optimizations at runtime, generating native Java bytecode that can remove entire tasks or stages during execution. Finally the result is returned to the user.
 # Chapter 5: Basic Structured Operations
 A DataFrame consists of a series of records (like rows in a table), that are of type Row, and a number of columns (like columns in a spreadsheet) that represent a computation expression that can be performed on each individual record in the Dataset. Schemas define the name as well as the type of data in each column. Partitioning of the DataFrame defines the layout of the DataFrame or Dataset’s physical distribution across the cluster. The partitioning scheme defines how that is allocated.
-
 ## Schemas
 ```python
 df.schema()
@@ -912,8 +911,7 @@ df.select(corr("Quantity", "UnitPrice")).show()
 ```
 ![[Pasted image 20240130181701.png]]
 
-Another common task is to compute summary statistics for a column or set of col‐  
-umns. We can use the `describe` method to achieve exactly this:
+Another common task is to compute summary statistics for a column or set of columns. We can use the `describe` method to achieve exactly this:
 ```python
 df.describe().show()
 ```
@@ -1251,4 +1249,951 @@ Maps are created by using the map function and key-value pairs of columns. You t
 ```python
 from pyspark.sql.functions import create_map  
 df.select(create_map(col("Description"), col("InvoiceNo")).alias("complex_map")).show(2)
+```
+
+
+# Chapter 7: Aggregations
+Intro
+# Chapter 8: Joins
+## Join Expressions
+A join brings together two sets of data, the left and the right, by comparing the value of one or more keys of the left and right and evaluating the result of a join expression that determines whether Spark should bring together the left set of data with the right set of data.
+## Join Types
+* **Inner Join**: keep rows with keys that exist in the left and right datasets.
+* **Outer Joins**: keep rows with keys in either the left or right datasets
+* **Left Outer Join**: keep rows with keys in the left dataset
+* **Right Outer Join**: keep rows with keys in the right dataset
+* **Left Semi Join**: keep the rows in the left, and only the left, dataset where the key appears in the right dataset.
+* **Left Anti Join**: keep the rows in the left, and only the left, dataset where they do not appear in the right dataset.
+* **Natural Join**: perform a join by implicitly matching the columns between the two datasets with the same names.
+* **Cross Join (Cartesian Join)**: (match every row in the left dataset with every row in the right dataset)
+
+Lets start with an example dataset:
+```python
+person = spark.createDataFrame([ (0, "Bill Chambers", 0, [100]),
+								(1, "Matei Zaharia", 1, [500, 250, 100]), (2, "Michael Armbrust", 1, [250, 100])]).toDF("id", "name", "graduate_program", "spark_status")
+								
+graduateProgram = spark.createDataFrame([ (0, "Masters", "School of Information", "UC Berkeley"), (2, "Masters", "EECS", "UC Berkeley"), (1, "Ph.D.", "EECS", "UC Berkeley")]).toDF("id", "degree", "department", "school") 
+
+sparkStatus = spark.createDataFrame([ (500, "Vice President"), (250, "PMC Member"), (100, "Contributor")]).toDF
+```
+
+Register the tables:
+```python
+person.createOrReplaceTempView("person") graduateProgram.createOrReplaceTempView("graduateProgram") sparkStatus.createOrReplaceTempView("sparkStatus")
+```
+![[Pasted image 20240201114725.png]]
+![[Pasted image 20240201114737.png]]
+![[Pasted image 20240201114748.png]]
+## Inner Joins
+In the following example, we join the `graduateProgram` DataFrame with the `person` DataFrame to create a new DataFrame:
+```python
+joinExpression = person["graduate_program"] == graduateProgram['id']
+```
+![[Pasted image 20240201114939.png]]
+
+Keys that do not exist in both DataFrames will not show in the resulting DataFrame. For example, the following expression would result in zero values in the resulting DataFrame:
+```python
+wrongJoinExpression = person["name"] == graduateProgram["school"]
+```
+
+**Inner Joins** are the default join, so we just need to specify our left DataFrame and join the right in the JOIN expression:
+```python
+person.join(graduateProgram, joinExpression).show()
+```
+![[Pasted image 20240201115147.png]]
+
+We can also specify this explicitly by passing in a third parameter, the `joinType`:
+```python
+joinType = "inner" 
+person.join(graduateProgram, joinExpression, joinType).show()
+```
+![[Pasted image 20240201115312.png]]
+## Outer Joins
+**Outer joins** evaluate the keys in both of the DataFrames or tables and includes (and joins together) the rows that evaluate to true or false. If there is no equivalent row in either the left or right DataFrame, Spark will insert *null*:
+```python
+joinType = "outer" 
+person.join(graduateProgram, joinExpression, joinType).show()
+```
+![[Pasted image 20240201115454.png]]
+## Left Outer Joins
+**Left outer joins** evaluate the keys in both of the DataFrames or tables and includes all rows from the left DataFrame as well as any rows in the right DataFrame that have a match in the left DataFrame. If there is no equivalent row in the right DataFrame, Spark will insert `null`:
+```python
+joinType = "left_outer" 
+graduateProgram.join(person, joinExpression, joinType).show()
+```
+![[Pasted image 20240201115611.png]]
+## Right Outer Joins
+**Right outer joins** evaluate the keys in both of the DataFrames or tables and includes all rows from the right DataFrame as well as any rows in the left DataFrame that have a match in the right DataFrame. If there is no equivalent row in the left DataFrame, Spark will insert `null`:
+```python
+joinType = "right_outer" 
+person.join(graduateProgram, joinExpression, joinType).show()
+```
+![[Pasted image 20240201115727.png]]
+## Left Semi Joins
+**Semi joins** are a bit of a departure from the other joins. They do not actually include any values from the right DataFrame. They only compare values to see if the value exists in the second DataFrame. If the value does exist, those rows will be kept in the result, even if there are duplicate keys in the left DataFrame:
+```python
+joinType = "left_semi" 
+graduateProgram.join(person, joinExpression, joinType).show()
+```
+![[Pasted image 20240201120125.png]]
+```python
+gradProgram2 = graduateProgram.union(spark.createDataFrame([ (0, "Masters", "Duplicated Row", "Duplicated School")])) 
+gradProgram2.createOrReplaceTempView("gradProgram2") 
+
+gradProgram2.join(person, joinExpression, joinType).show()
+```
+![[Pasted image 20240201120216.png]]
+## Left Anti Joins
+**Left anti joins** are the ***opposite*** of **left semi joins**. they do not actually include any values from the right DataFrame. They only compare values to see if the value exists in the second DataFrame. However, rather than keeping the values that exist in the second DataFrame, they keep only the values that do not have a corresponding key in the second DataFrame:
+```python
+joinType = "left_anti" 
+graduateProgram.join(person, joinExpression, joinType).show()
+```
+![[Pasted image 20240201120426.png]]
+## Natural Joins
+**Natural joins** make implicit guesses at the columns on which you would like to join:
+```python
+joinType: "natural"
+graduateProgram.join(person, joinExpression, joinType).show()
+```
+![[Pasted image 20240201120555.png]]
+## Cross (Cartesian) Joins
+
+The last of our joins are **cross-joins** or cartesian products. **Cross-joins** in simplest terms are inner joins that do not specify a predicate. **Cross joins** will join every single row in the left DataFrame to ever single row in the right DataFrame. You must very explicitly state that you want a cross-join by using the cross join keyword:
+```python
+joinType = "cross" 
+graduateProgram.join(person, joinExpression, joinType).show()
+```
+![[Pasted image 20240201120720.png]]
+
+If you truly intend to have a cross-join, you can call that out explicitly:
+```python
+person.crossJoin(graduateProgram).show()
+```
+## Challenges when using Joins
+#### Joins on Complex Types
+Even though this might seem like a challenge, it’s actually not. Any expression is a valid join expression, assuming that it returns a Boolean:
+```python
+from pyspark.sql.functions import expr person.withColumnRenamed("id", "personId").join(sparkStatus, expr("array_contains(spark_status, id)")).show()
+```
+![[Pasted image 20240201121224.png]]
+#### Handling Duplicate Column Names
+One of the tricky things that come up in joins is dealing with duplicate column names in your results DataFrame. In a DataFrame, each column has a unique ID within Spark’s SQL Engine, Catalyst. This makes it quite difficult to refer to a specific column when you have a DataFrame with duplicate column names.
+
+This can occur in two distinct situations: 
+• The join expression that you specify does not remove one key from one of the input DataFrames and the keys have the same column name.
+• Two columns on which you are not performing the join have the same name.
+
+Example:
+```python
+gradProgramDupe = graduateProgram.withColumnRenamed("id", "graduate_program")
+joinExpr = gradProgramDupe["graduate_program"] == person["graduate_program"]
+
+person.join(gradProgramDupe, joinExpr).show()
+```
+![[Pasted image 20240201122510.png]]
+There are now two `graduate_program` columns, even though we joined on that key. The challenge arises when we refer to one of these columns:
+```python
+person.join(gradProgramDupe, joinExpr).select("graduate_program").show()
+```
+![[Pasted image 20240201122641.png]]
+##### Approach 1: Different join expression
+When you have two keys that have the same name, probably the easiest fix is to change the join expression from a Boolean expression to a string or sequence. This automatically removes one of the columns for you during the join:
+```python
+person.join(gradProgramDupe,"graduate_program").select("graduate_program").show()
+```
+![[Pasted image 20240201122753.png]]
+##### Approach 2: Dropping the column after the join
+Another approach is to drop the offending column after the join. When doing this, we need to refer to the column via the original source DataFrame. We can do this if the join uses the same key names or if the source DataFrames have columns that simply have the same name:
+```python
+person.join(gradProgramDupe, joinExpr).drop(person["graduate_program"]).select("graduate_program").show()
+
+joinExpr = person["graduate_program"] == graduateProgram["id"]
+person.join(graduateProgram, joinExpr).drop(graduateProgram["id"]).show()
+```
+![[Pasted image 20240201123719.png]]
+##### Approach 3: Renaming a column before the join
+We can avoid this issue altogether if we rename one of our columns before the join:
+```python
+gradProgram3 = graduateProgram.withColumnRenamed("id", "grad_id")
+
+joinExpr = person["graduate_program"] == gradProgram3["grad_id"]
+person.join(gradProgram3, joinExpr).show()
+```
+![[Pasted image 20240201123905.png]]
+## How Spark Performs Joins
+To understand how Spark performs joins, you need to understand the two core resources at play: the **node-to-node communication strategy** and **per node computation strategy**.
+#### Communication Strategies
+Spark uses two main communication approaches for joins:
+- **Shuffle Join:** Involves "all-to-all" communication where data is shuffled across the cluster to different partitions. Used when both tables are large.
+- **Broadcast Join:** One table (typically the smaller one) is broadcasted to all worker nodes, reducing network traffic. Used when one table is significantly smaller than the other.
+##### Big table-to-big table
+When you join a big table to another big table, you end up with a **shuffle join**.
+![[Pasted image 20240201124907.png]]
+
+A join strategy where all nodes in the cluster share data with each other based on the join key(s). Used when both tables being joined are large.
+
+**Pros & Cons:**
+- **Pro:** Can handle very large datasets.
+- **Con:** Expensive due to high network traffic, especially with poor data partitioning.
+
+**Use case:**
+- Joining two large datasets where identifying changes over time is needed.
+- Example: Joining billions of daily IoT messages based on device ID, message type, and date.
+
+**Key point:**
+- Partitioning your data effectively can significantly improve shuffle join performance by reducing network traffic.
+##### Big table-to-small table
+## Spark Broadcast Join: Summary
+This join is ideal when one table (typically much smaller) fits in the memory of a single worker node.
+
+**Benefits:**
+- Avoids expensive "all-to-all" communication during the entire join.
+- Reduces network traffic by broadcasting the small table to all worker nodes once.
+- Enables individual worker nodes to perform joins independently, potentially improving performance.
+
+**Trade-offs:**
+- Requires enough memory on a single worker node to hold the entire small table.
+- Initial broadcast can be expensive.
+- CPU becomes the primary bottleneck after the initial broadcast.
+
+**Key takeaway:**
+Broadcast join is a good optimization for joining large tables with small tables, significantly reducing network traffic and potentially improving performance. However, memory constraints and CPU bottlenecks should be considered.
+##### Little table–to–little table
+When performing joins with small tables, it’s usually best to let Spark decide how to join them. You can always force a broadcast join if you’re noticing strange behavior.
+# Chapter 9: Data Sources
+Following are Spark’s core data sources:
+• CSV 
+• JSON 
+• Parquet 
+• ORC 
+• JDBC/ODBC connections 
+• Plain-text files
+
+Spark has numerous community-created data sources:
+• Cassandra 
+• HBase 
+• MongoDB 
+• AWS Redshift 
+• XML 
+• And many, many others
+## The Structure of the Data Sources
+#### Read API Structure
+The core structure for reading data is as follows:
+```
+DataFrameReader.format(...).option("key", "value").schema(...).load()
+```
+We will use this format to read from all of our data sources. `format` is optional because by default Spark will use the Parquet format. `option` allows you to set key-value configurations to parameterize how you will read data. Lastly, `schema` is optional if the data source provides a schema or if you intend to use schema inference.
+#### Basics of Reading Data
+The foundation for reading data in Spark is the `DataFrameReader`. We access this through the `SparkSession` via the `read` attribute: 
+```
+spark.read
+```
+
+After we have a DataFrame reader, we specify several values: 
+• The **format** 
+• The **schema** 
+• The **read mode** 
+• A series of **options**
+
+Overall layout:
+```python
+spark.read.format("csv")\ 
+	.option("mode", "FAILFAST")\ 
+	.option("inferSchema", "true")\ 
+	.option("path", "path/to/file(s)")\ 
+	.schema(someSchema)\
+	.load()
+```
+There are a variety of ways in which you can set options; for example, you can build a map and pass in your configurations.
+##### Read modes
+Reading data from an external source naturally entails encountering malformed data, especially when working with only semi-structured data sources. Read modes specify what will happen when Spark does come across malformed records.
+![[Pasted image 20240201133635.png]]
+The default is **permissive**.
+#### Write API Structure
+The foundation for writing data is quite similar to that of reading data. Instead of the `DataFrameReader`, we have the `DataFrameWriter`. Because we always need to write out some given data source, we access the `DataFrameWriter` on a `per-DataFrame` basis via the `write` attribute:
+```python
+dataFrame.write()
+```
+
+After we have a `DataFrameWriter`, we specify three values: the **format**, a series of **options**, and the **save mode**. At a minimum, you must supply a path. We will cover the potential for options
+```python
+dataframe = spark.read.format("csv").option("header", "true").load("dbfs:/FileStore/shared_uploads/ayaan2911@aol.com/summary2015-1.csv")
+
+dataframe.write.format("csv").option("mode", "OVERWRITE").option("dateFormat", "yyyy-MM-dd").option("path", "path/to/file(s)").save()
+```
+![[Pasted image 20240201134520.png]]
+##### Save modes
+Save modes specify what will happen if Spark finds data at the specified location (assuming all else equal).
+![[Pasted image 20240201134556.png]]
+The default is `errorIfExists`. This means that if Spark finds data at the location to which you’re writing, it will fail the write immediately.
+## CSV Files
+CSV stands for commma-separated values. This is a common text file format in which each line represents a single record, and commas separate each field within a record.
+#### CSV Options
+![[Pasted image 20240201134719.png]]
+![[Pasted image 20240201134742.png]]
+#### Reading CSV Files
+```python
+spark.read.format("csv")\
+ .option("header", "true")\
+ .option("mode", "FAILFAST")\
+ .option("inferSchema", "true")\
+ .load("dbfs:/FileStore/shared_uploads/ayaan2911@aol.com/summary2015-1.csv")
+```
+#### Writing CSV Files
+```python
+csvFile = spark.read.format("csv")\
+ .option("header", "true")\
+ .option("mode", "FAILFAST")\
+ .option("inferSchema", "true")\
+ .load("dbfs:/FileStore/shared_uploads/ayaan2911@aol.com/summary2015-1.csv")
+```
+
+We can take our CSV file and write it out as a TSV file quite easily:
+```python
+csvFile.write.format("csv").mode("overwrite").option("sep", "\t").save("/tmp/my-tsv-file.tsv")
+```
+## JSON Files
+Spark works with line-delimited JSON files:
+- Each line contains a separate JSON object.
+- Use `multiLine=True` for entire file as one object.
+- Recommended for appending records and better stability.
+
+Advantages of line-delimited JSON:
+- Structured data simplifies processing.
+- Fewer configuration options due to inherent structure.
+- Easier for Spark to infer data types.
+
+Contrast with multiline JSON:
+- Single large object per file.
+- Less stable for frequent appends.
+- Requires more processing and configuration.
+
+**Line-delimited JSON** is preferred for its *efficiency*, *stability*, and *simpler* handling in Spark.
+#### JSON Options
+![[Pasted image 20240201140901.png]]
+![[Pasted image 20240201140938.png]]
+#### Reading JSON Files
+```python
+spark.read.format("json")\
+	.option("mode", "FAILFAST")\ 
+	.option("inferSchema", "true")\ 
+	.load("/data/flight-data/json/2010-summary.json").show(5)
+```
+#### Writing JSON Files
+```python
+csvFile.write.format("json").mode("overwrite").save("/tmp/my-json-file.json")
+```
+## Parquet Files
+Imagine a spreadsheet where each column is stored separately and compressed. That's essentially Parquet! It's a file format designed for efficient storage and retrieval of large datasets. 
+
+Key Features:
+- **Columnar:** Data is stored by column, not row-by-row, allowing faster access to specific columns.
+- **Compressed:** Different compression techniques are used to reduce file size.
+- **Self-describing:** Includes metadata about the data types and structure.
+- **Fast queries:** Optimized for queries that scan only a subset of columns.
+
+Benefits:
+- Saves storage space compared to plain text formats like CSV.
+- Enables faster data processing, especially for complex queries.
+- Widely supported by various big data tools and frameworks.
+
+Use cases:
+- Storing and analyzing large datasets in data warehouses and lakes.
+- Enabling efficient machine learning and data analytics tasks.
+
+Remember:
+- Not as human-readable as plain text formats.
+- Optimized for large datasets, not small files.
+#### Parquet Options
+![[Pasted image 20240201141653.png]]
+#### Reading Parquet Files
+```python
+spark.read.format("parquet").load("/data/flight-data/parquet/2010-summary.parquet").show(5)
+```
+#### Writing Parquet Files
+```python
+csvFile.write.format("parquet").mode("overwrite").save("/tmp/my-parquet-file.parquet")
+```
+## ORC Files
+Think of ORCs (Optimized Row Columnar format) as Parquet with some added magic tricks for efficient data handling in Apache Hive and Spark ecosystems.
+
+Key Features:
+- **Columnar Storage:** Like *Parquet*, data is stored by column for faster access to specific columns.
+- **Advanced Compression:** Uses various techniques like dictionary encoding and run length encoding for even smaller file sizes compared to Parquet. 
+- **Self Describing:** Includes metadata about data types and structure. 
+- **Predicate Pushdown:** Pushes filtering logic to storage layer for efficient data retrieval.
+- **Acid Transactions:** Supports ACID transactions for data consistency in Hive.
+
+Benefits:
+- **Smaller Files:** Saves storage space compared to *Parquet* and other formats. 
+- **Faster Processing:** Delivers faster query performance due to columnar storage and predicate pushdown. 
+- **Hive Integration:** Seamlessly integrated with Hive for efficient data management.
+- **Spark Compatibility:** Works well with Spark for data processing and analysis.
+
+Things to Remember:
+* **Less Human Readable:** Not as easily readable as plain text formats. 
+* **Hive & Spark Ecosystem:** Mainly used in Hive and Spark environments.
+
+Overall:
+**ORCs** are a powerful format for efficient data storage and processing in Hive and Spark ecosystems, offering smaller file sizes and faster performance compared to alternatives.
+**Think of it as a well organized and compressed data storage solution specifically designed for these big data environments.**
+#### Reading Orc Files
+```python
+spark.read.format("orc").load("/data/flight-data/orc/2010-summary.orc").show(5)
+```
+#### Writing Orc Files
+```python
+csvFile.write.format("orc").mode("overwrite").save("/tmp/my-json-file.orc")
+```
+## SQL Databases
+Benefits:
+- **Powerful connector:** Access diverse databases using familiar SQL queries.
+- **Examples:** MySQL, PostgreSQL, Oracle, SQLite (demonstrated).
+
+Considerations:
+- **Authentication:** Secure access to the database system.
+- **Connectivity:** Ensure network connection between Spark and database.
+
+SQLite advantage:
+- Easy setup, runs locally without distribution limitations.
+
+**Note:** For distributed environments, connect to other database types.
+
+To read and write from these databases, you need to do two things: include the Java Database Connectivity (JDBC) driver for you particular database on the spark class‐ path, and provide the proper JAR for the driver itself. For example, to be able to read and write from PostgreSQL, you might run something like this:
+```text
+./bin/spark-shell \ 
+--driver-class-path postgresql-9.4.1207.jar \ 
+--jars postgresql-9.4.1207.jar
+```
+#### SQL Database Options
+![[Pasted image 20240201143126.png]]
+![[Pasted image 20240201143138.png]]
+#### Reading from SQL Databases
+```python
+driver = "org.sqlite.JDBC"
+path = "dbfs:/FileStore/shared_uploads/ayaan2911@aol.com/my_sqlite.db"
+url = "jdbc:sqlite:" + path
+tablename = "flight_info"
+```
+
+If this connection succeeds, you’re good to go. Let’s go ahead and read the DataFrame from the SQL table:
+```python
+dbDataFrame = spark.read.format("jdbc").option("url", url)\ .option("dbtable", tablename).option("driver", driver).load()
+```
+
+Let’s perform the same read that we just performed, except using PostgreSQL this time:
+```python
+pgDF = spark.read.format("jdbc").option("driver", "org.postgresql.Driver").option("url", "jdbc:postgresql://database_server").option("dbtable", "schema.tablename").option("user", "username").option("password", "my-secret-password").load()
+```
+
+Get only the distinct locations to verify that we can query it as expected:
+```python
+dbDataFrame.select("DEST_COUNTRY_NAME").distinct().show(5)
+```
+![[Pasted image 20240202111721.png]]
+#### Query Pushdown
+If we specify a filter on our DataFrame, Spark will push that filter down into the database. We can see this in the explain plan under `PushedFilters`:
+```python
+dbDataFrame.filter("DEST_COUNTRY_NAME in ('Anguilla', 'Sweden')").explain()
+```
+![[Pasted image 20240202112349.png]]
+
+To pass an entire query into your SQL:
+```python
+pushdownQuery = """(SELECT DISTINCT(DEST_COUNTRY_NAME) FROM flight_info) AS flight_info""" 
+
+dbDataFrame = spark.read.format("jdbc").option("url", url).option("dbtable", pushdownQuery).option("driver", driver).load()
+```
+
+![[Pasted image 20240202112923.png]]
+
+##### Reading from databases in parallel
+Spark has an underlying algorithm that can read multiple files into one partition, or conversely, read multiple partitions out of one file, depending on the file size and the “splitability” of the file type and compression. The same flexibility that exists with files, also exists with SQL databases except that you must configure it a bit more manually:
+```python
+dbDataFrame = spark.read.format("jdbc").option("url", url).option("dbtable", tablename).option("driver", driver).option("numPartitions", 10).load()
+```
+
+While other APIs offer data partitioning optimizations, this method lets you directly specify predicates within the connection itself. This enables fine-grained control over data location, pushing only relevant subsets (e.g., specific countries) into different Spark partitions for efficient processing. Think of it as filtering and pre-sorting data directly at the database level before bringing it into Spark:
+```python
+props = {"driver":"org.sqlite.JDBC"} 
+predicates = [ "DEST_COUNTRY_NAME = 'Sweden' OR ORIGIN_COUNTRY_NAME = 'Sweden'", "DEST_COUNTRY_NAME = 'Anguilla' OR ORIGIN_COUNTRY_NAME = 'Anguilla'"] 
+
+spark.read.jdbc(url, tablename, predicates=predicates, properties=props).show() spark.read.jdbc(url,tablename,predicates=predicates,properties=props).rdd.getNumPartitions()
+```
+![[Pasted image 20240202114227.png]]
+
+If you specify predicates that are not disjoint, you can end up with lots of duplicate rows. Here’s an example set of predicates that will result in duplicate rows:
+```python
+props = {"driver":"org.sqlite.JDBC"} 
+
+predicates = [ "DEST_COUNTRY_NAME != 'Sweden' OR ORIGIN_COUNTRY_NAME != 'Sweden'", "DEST_COUNTRY_NAME != 'Anguilla' OR ORIGIN_COUNTRY_NAME != 'Anguilla'"] spark.read.jdbc(url, tablename, predicates=predicates, properties=props).count()
+```
+##### Partitioning based on a sliding window
+- Partition data based on numerical ranges for efficient parallel processing.
+- Set minimum and maximum bounds for first and last partitions, and Spark distributes data accordingly, without filtering.
+
+```python
+colName = "count" 
+lowerBound = 0L 
+upperBound = 348113L # this is the max count in our database numPartitions = 10
+```
+
+This will distribute the intervals equally from low to high:
+```python
+spark.read.jdbc(url, tablename, column=colName, properties=props, lowerBound=lowerBound, upperBound=upperBound, numPartitions=numPartitions).count()
+```
+#### Writing to SQL Databases
+```python
+newPath = "jdbc:sqlite://tmp/my-sqlite.db" csvFile.write.jdbc(newPath, tablename, mode="overwrite", properties=props)
+```
+
+Look at the results:
+```python
+csvFile.write.jdbc(newPath, tablename, mode="append", properties=props)
+```
+
+We can append to the table this new table just as easily:
+```python
+csvFile.write.jdbc(newPath, tablename, mode="append", properties=props)
+```
+
+Notice that count increases:
+```python
+spark.read.jdbc(newPath, tablename, properties=props).count()
+```
+## Text Files
+Spark also allows you to read in plain-text files. Each line in the file becomes a record in the DataFrame. It is then up to you to transform it accordingly.
+#### Reading Text Files
+```python
+spark.read.text("/data/flight-data/csv/2010-summary.csv").selectExpr("split(value, ',') as rows").show()
+```
+![[Pasted image 20240202120753.png]]
+#### Writing Text Files
+```python
+csvFile.limit(10).select("DEST_COUNTRY_NAME", "count").write.partitionBy("count").text("/tmp/five-csv-files2py.csv")
+```
+## Advanced I/O Concepts
+We can also control specific data layout by controlling two things: **Bucketing** and **Partitioning**.
+#### Splittable File Types and Compression
+- Certain file formats are **splittable**, enabling Spark to access only necessary parts of a file, improving speed by avoiding reading the entire file.
+- Splitting files is particularly beneficial with distributed file systems like *Hadoop Distributed File System (HDFS)*, as it optimizes across multiple blocks.
+- However, not all compression schemes support file **splittability**, which can impact performance.
+- The choice of file format and compression greatly affects Spark job performance.
+- **Parquet with gzip compression** is recommended for optimal performance, offering efficiency and compatibility with Spark while maintaining a good balance between compression ratio and performance.
+#### Reading Data in Parallel
+- Multiple executors cannot simultaneously read from the same file.
+- However, they can read from different files simultaneously.
+- When reading from a folder containing multiple files, each file becomes a partition in the DataFrame.
+- The available executors read these partitions in parallel, with any remaining executors queuing up behind others.
+#### Writing Data in Parallel
+The number of files or data written is dependent on the number of partitions the DataFrame has at the time you write out the data. By default, one file is written per partition of the data. This means that although we specify a “file,” it’s actually a number of files within a folder, with the name of the specified file, with one file per each partition that is written.
+
+For example, the following code
+```python
+csvFile.repartition(5).write.format("csv").save("/tmp/multiple.csv")
+```
+will end up with five files inside of that folder.
+![[Pasted image 20240202122038.png]]
+![[Pasted image 20240202122049.png]]
+#### Partitioning
+**Partitioning** allows you to control data storage by encoding a column as a folder, enabling selective data retrieval. This means you can read only relevant data, bypassing unnecessary scans of the complete dataset.
+```python
+csvFile.limit(10).write.mode("overwrite").partitionBy("DEST_COUNTRY_NAME").save("/tmp/partitioned-files.parquet")
+```
+
+Upon writing, you get a list of folders in your Parquet “file”:
+![[Pasted image 20240202122340.png]]
+Each of these will contain Parquet files that contain that data where the previous predicate was true:
+![[Pasted image 20240202122401.png]]
+#### Bucketing
+- Bucketing is an alternative file organization method to partitioning.
+- It allows control over which data is written to each file.
+- Data with the same bucket ID is grouped together into one physical partition.
+- Prepartitioning data based on expected usage can avoid costly shuffles during operations like joining or aggregating.
+- Bucketing creates a specific number of files and organizes data into these "buckets," offering efficiency compared to partitioning, which may create numerous directories.
+
+```scala
+val numberBuckets = 10 val columnToBucketBy = "count" 
+csvFile.write.format("parquet").mode("overwrite").bucketBy(numberBuckets, columnToBucketBy).saveAsTable("bucketedFiles")
+```
+![[Pasted image 20240202122620.png]]
+## Managing File Size
+- Managing file sizes is crucial, especially for efficient data reading.
+- Handling numerous small files incurs significant metadata overhead, known as the "small file problem," which affects Spark's performance and is problematic for file systems like HDFS.
+- Conversely, excessively large files can lead to inefficiency when reading entire blocks of data for only a few required rows.
+- Spark 2.2 introduced a method to automatically control file sizes.
+- The `maxRecordsPerFile` option allows specifying the maximum number of records per file.
+- Setting this option (e.g., `df.write.option("maxRecordsPerFile", 5000)`) ensures each file contains at most the specified number of records, aiding in better file size management.
+# Chapter 10: Spark SQL
+## The Hive Metastore
+- To connect to the Hive metastore, specific properties are required.
+- Set `spark.sql.hive.metastore.version` to correspond to the Hive metastore version being accessed, typically set to 1.2.1 by default.
+- Adjust `spark.sql.hive.metastore.jars` if customization of the HiveMetastoreClient initialization is needed, allowing specification of Maven repositories or a classpath.
+- Proper class prefixes might be necessary for communication with different databases storing the Hive metastore; these are set as shared prefixes shared between Spark and Hive (`spark.sql.hive.metastore.sharedPrefixes`).
+## Spark SQL CLI
+To start the Spark SQL CLI, run the following in the Spark directory:
+```
+./bin/spark-sql
+```
+
+You configure Hive by placing your `hive-site.xml`, `core-site.xml`, and `hdfs-site.xml` files in conf/. For a complete list of all available options, you can run:
+```
+./bin/spark-sql -- help
+```
+## Spark's Programming SQL Interface
+You can do this via the method `sql` on the `SparkSession` object.
+```python
+spark.sql("SELECT 1 + 1").show()
+```
+![[Pasted image 20240202124139.png]]
+
+You can express multiline queries quite simply by passing a multiline string into the function:
+```python
+spark.sql("""SELECT user_id, department, first_name FROM professors WHERE department IN (SELECT name FROM department WHERE created_date >= '2016-01-01')""")
+```
+
+Even more powerful, you can completely interoperate between SQL and DataFrames, as you see fit. For instance, you can create a DataFrame, manipulate it with SQL, and then manipulate it again as a DataFrame:
+```python
+spark.read.json("dbfs:/FileStore/shared_uploads/ayaan2911@aol.com/2015_summary-1.json").createOrReplaceTempView("some_sql_view") # DF => SQL 
+
+spark.sql("""
+SELECT DEST_COUNTRY_NAME, sum(count)
+FROM some_sql_view GROUP BY DEST_COUNTRY_NAME
+""").where("DEST_COUNTRY_NAME like 'S%'").where("`sum(count)` > 10").count()
+```
+![[Pasted image 20240202124834.png]]
+## SparkSQL Thrift JDBC/ODBC Server
+- Spark offers a JDBC interface for executing Spark SQL queries, allowing connections from either local or remote programs to the Spark driver.
+- This interface facilitates scenarios like connecting business intelligence software (e.g., Tableau) to Spark for data analysis.
+- The Thrift JDBC/ODBC server in Spark corresponds to HiveServer2 in Hive 1.2.1, enabling compatibility with existing tools and scripts.
+- To start the JDBC/ODBC server, run `./sbin/start-thriftserver.sh` in the Spark directory, which accepts various command-line options and listens on `localhost:10000` by default.
+- Configuration options for the Thrift Server can be specified through environmental variables or system properties.
+- Testing the JDBC/ODBC connection can be done using the `beeline` script provided with Spark or Hive 1.2.1, connecting to `jdbc:hive2://localhost:10000`.
+## Catalog
+- The highest level abstraction in Spark SQL is the Catalog, which stores metadata about tables, databases, functions, and views.
+- It resides in the `org.apache.spark.sql.catalog.Catalog` package and offers functions for tasks like listing tables, databases, and functions.
+- The Catalog is user-friendly and provides a programmatic interface to Spark SQL for managing metadata.
+- While code samples are omitted, users need to wrap relevant code in a `spark.sql` function call when using the programmatic interface to execute SQL commands.
+
+## Tables
+#### Creating Tables
+Here’s a simple way to read in the flight data we worked with in previous chapters:
+```SQL
+CREATE TABLE flights (
+	DEST_COUNTRY_NAME STRNG, ORIGIN_COUNTRY_NAME STRING, count LONG)
+USING JSON
+OPTIONS (path 'dbfs:/FileStore/shared_uploads/ayaan2911@aol.com/summary2015-2.csv')
+)
+```
+![[Pasted image 20240202140319.png]]
+
+![[Pasted image 20240202135824.png]]
+
+You can also add comments to certain columns in a table, which can help other developers understand the data in the tables:
+```sql
+CREATE TABLE flights_csv (
+ DEST_COUNTRY_NAME STRING,
+ ORIGIN_COUNTRY_NAME STRING COMMENT "remember, the US will be most prevalent",
+ count LONG)
+
+USING csv
+OPTIONS (header true, path '/data/flight-data/csv/2015-summary.csv')
+```
+
+It is possible to create a table from a query as well. The following program populates the schema and data from the flights table:
+```sql
+CREATE TABLE flights_from_select USING parquet AS SELECT * FROM flights
+```
+![[Pasted image 20240202141210.png]]
+
+In addition, you can specify to create a table only if it does not currently exist:
+```sql
+CREATE TABLE IF NOT EXISTS flights_from_select AS SELECT * FROM flights
+```
+
+You can control the layout of the data by writing out a partitioned dataset:
+```sql
+CREATE TABLE partitioned_flights USING parquet PARTITIONED BY (DEST_COUNTRY_NAME) AS SELECT DEST_COUNTRY_NAME, ORIGIN_COUNTRY_NAME, count FROM flights 
+LIMIT 5
+```
+#### Creating External Tables
+External tables in database management systems refer to tables where the data files are stored outside of the database's directory. Instead of managing the data files internally, the database simply references them.
+You create this table by using the `CREATE EXTERNAL TABLE` statement:
+```sql
+CREATE EXTERNAL TABLE hive_flights ( DEST_COUNTRY_NAME STRING, ORIGIN_COUNTRY_NAME STRING, count LONG) ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' LOCATION '/data/flight-data-hive/'
+```
+or,
+using the `SELECT` statement:
+```sql
+CREATE EXTERNAL TABLE hive_flights_2
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+LOCATION '/data/flight-data-hive/' AS SELECT * FROM flights
+```
+#### Inserting into Tables
+```sql
+INSERT INTO flights_from_select
+SELECT DEST_COUNTRY_NAME, ORIGIN_COUNTRY_NAME, count FROM flights
+LIMIT 20
+```
+
+You can optionally provide a partition specification if you want to write only into a certain partition:
+```sql
+INSERT INTO partitioned_flights PARTITION (DEST_COUNTRY_NAME="UNITED STATES")
+SELECT count, ORIGIN_COUNTRY_NAME FROM flights
+WHERE DEST_COUNTRY_NAME='UNITED STATES'
+LIMIT 12
+```
+#### Describing Table Metadata
+```sql
+DESCRIBE TABLE flights_csv
+```
+![[Pasted image 20240202145104.png]]
+
+You can also see the partitioning scheme for the data by using the following (note, however, that this works only on partitioned tables):
+```sql
+SHOW PARTITIONS partitioned_flights
+```
+![[Pasted image 20240202145144.png]]
+#### Refreshing Table Metadata
+`REFRESH TABLE` refreshes all cached entries (essentially, files) associated with the table. If the table were previously cached, it would be cached lazily the next time it is scanned:
+```sql
+REFRESH table partitioned_flights
+```
+
+`REPAIR TABLE`, which refreshes the partitions maintained in the catalog for that given table. This command’s focus is on collecting new partition information:
+```sql
+MSCK REPAIR TABLE partitioned_flights
+```
+#### Dropping Tables
+```sql
+DROP TABLE flights_csv
+```
+
+If you try to drop a table that does not exist, you will receive an error. To only delete a table if it already exists, use `DROP TABLE IF EXISTS`:
+```sql
+DROP TABLE IF EXISTS flights_csv
+```
+##### Dropping unmanaged tables
+If you are dropping an unmanaged table (e.g., *hive_flights*), no data will be removed but you will no longer be able to refer to this data by the table name.
+#### Caching Tables
+For **Caching**:
+```sql
+CACHE TABLE flights
+```
+For **Uncaching**:
+```sql
+UNCACHE TABLE flights
+```
+## Views
+A view in a database is a virtual table that is based on the result set of a SELECT query. Unlike physical tables, which store data persistently, views do not contain data themselves; instead, they represent a stored query that can be queried like a table.
+#### Creating Views
+```sql
+CREATE VIEW just_usa_view AS SELECT * FROM flights 
+WHERE dest_country_name = 'United States'
+```
+
+For temporary views:
+```sql
+CREATE TEMP VIEW just_usa_view_temp AS SELECT * FROM flights 
+WHERE dest_country_name = 'United States'
+```
+
+For global temporary views:
+```sql
+CREATE GLOBAL TEMP VIEW just_usa_global_view_temp AS SELECT * FROM flights 
+WHERE dest_country_name = 'United States' 
+```
+
+You can also specify that you would like to overwite a view if one already exists by using the keywords shown in the sample that follows. We can overwrite both temp views and regular views:
+```sql
+CREATE OR REPLACE TEMP VIEW just_usa_view_temp AS SELECT * FROM flights
+WHERE dest_country_name = 'United States'
+```
+Now you can query this view just as if it were another table:
+```sql
+SELECT * FROM just_usa_view_temp
+```
+
+To explain a view:
+```sql
+EXPLAIN SELECT * FROM just_usa_view
+```
+#### Dropping Views
+```sql
+DROP VIEW IF EXISTS just_usa_view
+```
+## Databases
+You can see all databases by using the following command:
+```sql
+SHOW DATABASES
+```
+#### Creating Databases
+```sql
+CREATE DATABASE some_db
+```
+#### Setting the Database
+You might want to set a database to perform a certain query:
+```sql
+USE some_db
+```
+
+After you set this database, all queries will try to resolve table names to this database.
+Queries that were working just fine might now fail or yield different results because you are in a different database:
+```sql
+SHOW tables
+SELECT * FROM flights --fails with table/view not found
+```
+
+To fix this, use the correct prefix:
+```sql
+SELECT * FROM default.flights
+```
+
+To see what database you're currently using by running the following command:
+```sql
+SELECT current_database()
+```
+
+To switch back to default database:
+```sql
+USE default
+```
+#### Dropping Databases
+```sql
+DROP DATABASE IF EXISTS some_db
+```
+## SELECT Statements
+![[Pasted image 20240202155848.png]]
+![[Pasted image 20240202155858.png]]
+## case...when...then Statements
+```sql
+SELECT CASE WHEN DEST_COUNTRY_NAME = 'UNITED STATES' THEN 1 WHEN DEST_COUNTRY_NAME = 'Egypt' THEN 0 ELSE -1 END FROM partitioned_flights
+```
+## Advanced Topics
+#### Complex Types
+There are three core complex types in Spark SQL: **structs**, **lists** and **maps**.
+##### structs
+To create one, you simply need to wrap a set of columns (or expressions) in parentheses:
+```sql
+CREATE VIEW IF NOT EXISTS nested_data AS SELECT (DEST_COUNTRY_NAME, ORIGIN_COUNTRY_NAME) as country, count FROM flights
+```
+
+You can even query individual columns within a struct—all you need to do is use dot syntax:
+```sql
+SELECT country.DEST_COUNTRY_NAME, count FROM nested_data
+```
+
+If you like, you can also select all the subvalues from a struct by using the struct’s name and select all of the subcolumns:
+```sql
+SELECT country.*, count FROM nested_data
+```
+##### Lists
+```sql
+SELECT DEST_COUNTRY_NAME as new_name, collect_list(count) as flight_counts, collect_set(ORIGIN_COUNTRY_NAME) as origin_set FROM flights GROUP BY DEST_COUNTRY_NAME
+```
+![[Pasted image 20240202162327.png]]
+
+You can, however, also create an array manually within a column, as shown here:
+```sql
+SELECT DEST_COUNTRY_NAME, ARRAY(1, 2, 3) FROM flights
+```
+![[Pasted image 20240202162259.png]]
+
+You can also query lists by position by using a Python-like array query syntax:
+```sql
+SELECT DEST_COUNTRY_NAME as new_name, collect_list(count)[0] FROM flights GROUP BY DEST_COUNTRY_NAME
+```
+
+You can also do things like convert an array back into rows. You do this by using the `explode` function:
+```sql
+CREATE OR REPLACE TEMP VIEW flights_agg AS SELECT DEST_COUNTRY_NAME, collect_list(count) as collected_counts FROM flights
+GROUP BY DEST_COUNTRY_NAME
+```
+## Functions
+To see a list of functions in Spark SQL, you use the `SHOW FUNCTIONS` statement:
+```sql
+SHOW FUNCTIONS
+```
+![[Pasted image 20240202163036.png]]
+
+You can also more specifically indicate whether you would like to see the system functions (i.e., those built into Spark) as well as user functions:
+```sql
+SHOW SYSTEM FUNCTIONS
+```
+![[Pasted image 20240202163115.png]]
+
+For user functions:
+```sql
+SHOW USER FUNCTIONS
+```
+![[Pasted image 20240202163153.png]]
+
+You can filter all `SHOW` commands by passing a string with wildcard (`*`) characters. Here, we can see all functions that begin with “s”:
+```sql
+SHOW FUNCTIONS "s*";
+```
+![[Pasted image 20240202163536.png]]
+
+You can also use the `LIKE` keyword.
+#### User-Defined Functions
+```python
+def power3(number:Double):Double = number * number * number spark.udf.register("power3", power3(_:Double):Double) 
+```
+```sql
+SELECT count, power3(count) FROM flights
+```
+## Subqueries
+#### Uncorrelated
+```sql
+SELECT * FROM flights 
+WHERE origin_country_name IN (SELECT dest_country_name FROM flights GROUP BY dest_country_name ORDER BY sum(count) DESC LIMIT 5)
+```
+#### Correlated
+```sql
+SELECT * FROM flights f1 
+WHERE EXISTS (SELECT 1 FROM flights f2 WHERE f1.dest_country_name = f2.origin_country_name) AND EXISTS (SELECT 1 FROM flights f2 WHERE f2.dest_country_name = f1.origin_country_name)
+```
+#### Uncorrelated Scalar
+```sql
+SELECT *, (SELECT max(count) FROM flights) AS maximum FROM flights
+```
+## Configurations
+![[Pasted image 20240202163905.png]]
+![[Pasted image 20240202163935.png]]
+#### Setting these config values
+```sql
+SET spark.sql.shuffle.partitions=20
+```
+# Chapter 11: Datasets
+
+- Datasets are used when operations cannot be expressed using DataFrame manipulations or when type-safety is desired, even at the cost of performance.
+- They are suitable for encoding large sets of business logic into specific functions, providing an appropriate use case for Datasets.
+- The Dataset API ensures type-safety, as operations that are not valid for their types will fail at compilation time rather than runtime, contributing to correctness and bulletproof code.
+- Datasets can elegantly handle and organize data, although they do not protect against malformed data.
+- Another scenario for using Datasets is when reusing transformations between single-node and Spark workloads, leveraging the similarity between Spark APIs and Scala Sequence Types.
+- Defining data and transformations as accepting case classes allows for easy reuse of Datasets for both distributed and local workloads.
+- Using DataFrames and Datasets in tandem is a popular approach, allowing for manual trade-offs between performance and type safety based on workload requirements.
+- This approach might involve collecting data to the driver for manipulation using single-node libraries, or performing per-row parsing before filtering and further manipulation in Spark SQL, depending on the transformation workflow.
+## Creating Datasets
+#### In Scala: Case Classes
+To create Datasets in Scala, you define a Scala case class. A ***case class*** is a regular class that has the following characteristics: 
+• Immutable 
+• Decomposable through pattern matching 
+• Allows for comparison based on structure instead of reference 
+• Easy to use and manipulate
+
+To begin creating a Dataset, let’s define a ***case class*** for one of our datasets:
+```scala
+case class Flight(DEST_COUNTRY_NAME: String, ORIGIN_COUNTRY_NAME: String, count: BigInt)
+```
+
+Now that we defined a case class, this will represent a single record in our dataset. More succintly, we now have a Dataset of Flights. This doesn’t define any methods for us, simply the schema. When we read in our data, we’ll get a DataFrame. However, we simply use the as method to cast it to our specified row type:
+```python
+flightsDF = spark.read.parquet("/data/flight-data/parquet/2010-summary.parquet/")
+flights = flightsDF.as[Flight]
+```
+## Actions
+```python
+flights.show(2)
 ```
